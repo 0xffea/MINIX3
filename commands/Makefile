@@ -10,7 +10,7 @@ SUBDIR=	add_route arp ash at backup basename btrace cal \
 	dhrystone diff dirname diskctl dumpcore \
 	eject elvis env expand factor fbdctl \
 	find finger fingerd fix fold format fortune fsck.mfs \
-	ftp101 gcore gcov-pull getty grep head hexdump host \
+	ftp101 gcore gcov-pull getty grep hexdump host \
 	hostaddr id ifconfig ifdef \
 	intr ipcrm ipcs irdpd isoread kill last \
 	less loadkeys loadramdisk logger look lp \

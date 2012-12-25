@@ -10,7 +10,7 @@ SUBDIR= \
 	 \
 	 du \
 	genassym \
-	indent join \
+	head indent join \
 	ldd \
 	login lorder m4 \
 	make man \
