@@ -476,12 +476,7 @@ int do_svrctl()
  *===========================================================================*/
 
 extern char *_brksize;
-int brk(brk_addr)
-#ifdef __NBSD_LIBC
-void *brk_addr;
-#else
-char *brk_addr;
-#endif
+int brk(void *brk_addr)
 {
 	int r;
 /* PM wants to call brk() itself. */
