@@ -1,11 +1,17 @@
-/* This file contains the main directory for the server. It waits for a 
- * request and then send a response. */
 
 #include "inc.h"
+
 #include <minix/vfsif.h>
+
 #include <assert.h>
+
 #include "const.h"
 #include "glo.h"
+
+/*
+ * This file contains the main directory for the server. It waits for a 
+ * request and then send a response.
+ */
 
 /* Declare some local functions. */
 static void get_work(message *m_in);
@@ -15,64 +21,86 @@ static void sef_local_startup(void);
 static int sef_cb_init_fresh(int type, sef_init_info_t *info);
 static void sef_cb_signal_handler(int signo);
 
-/*===========================================================================*
- *				main                                         *
- *===========================================================================*/
-int main(void) {
-  endpoint_t who_e;
-  int ind, error, transid;
+/*
+ *
+ */
+int
+main(void)
+{
+	endpoint_t who_e;
+	int	ind;
+	int	transid;
+	int	error;
 
-  /* SEF local startup. */
-  sef_local_startup();
+	/*
+	 * SEF local startup.
+	 */
+	sef_local_startup();
 
-  for (;;) {
+	for (;;) {
 
-	/* Wait for request message. */
-	get_work(&fs_m_in);
+		/* Wait for request message */
+		get_work(&fs_m_in);
 
-	transid = TRNS_GET_ID(fs_m_in.m_type);
-	fs_m_in.m_type = TRNS_DEL_ID(fs_m_in.m_type);
-	if (fs_m_in.m_type == 0) {
-		assert(!IS_VFS_FS_TRANSID(transid));
-		fs_m_in.m_type = transid;	/* Backwards compat. */
-		transid = 0;
-	} else
-		assert(IS_VFS_FS_TRANSID(transid));
+		transid = TRNS_GET_ID(fs_m_in.m_type);
+		fs_m_in.m_type = TRNS_DEL_ID(fs_m_in.m_type);
 
-	error = OK;
+		if (fs_m_in.m_type == 0) {
+			assert(!IS_VFS_FS_TRANSID(transid));
 
-	caller_uid = -1;	/* To trap errors */
-	caller_gid = -1;
+			/* Backwards compat. */
+			fs_m_in.m_type = transid;
+			transid = 0;
+		} else {
+			assert(IS_VFS_FS_TRANSID(transid));
+		}
 
-	who_e = fs_m_in.m_source;	/* source of the request */
+		error = OK;
 
-	if (who_e != VFS_PROC_NR) { /* If the message is not for us just 
-				    * continue */
-		continue;
-	}
+		/* To trap errors */
+		caller_uid = -1;
+		caller_gid = -1;
 
-	req_nr = fs_m_in.m_type;
+		/* Source of the request */
+		who_e = fs_m_in.m_source;
 
-	if (req_nr < VFS_BASE) {
-		fs_m_in.m_type += VFS_BASE;
+		/*
+		 * If the message is not for us just continue.
+		 */
+		if (who_e != VFS_PROC_NR) { 
+			continue;
+		}
+
 		req_nr = fs_m_in.m_type;
+
+		if (req_nr < VFS_BASE) {
+			fs_m_in.m_type += VFS_BASE;
+			req_nr = fs_m_in.m_type;
+		}
+
+		ind = req_nr - VFS_BASE;
+
+		if (ind < 0 || ind >= NREQS) {
+			error = EINVAL; 
+		} else {
+			/*
+			 * Process the request calling the
+			 * appropriate functions.
+			 */
+			error = (*fs_call_vec[ind])();
+		}	
+
+		fs_m_out.m_type = error; 
+		if (IS_VFS_FS_TRANSID(transid)) {
+			/* If a transaction ID was set, reset it */
+			fs_m_out.m_type = TRNS_ADD_ID(fs_m_out.m_type, transid);
+		}
+
+		/*
+		 * Returns the response to the VFS.
+		 */
+		reply(who_e, &fs_m_out);
 	}
-
-	ind = req_nr-VFS_BASE;
-
-	if (ind < 0 || ind >= NREQS) {
-		error = EINVAL; 
-	} else
-		error = (*fs_call_vec[ind])(); /* Process the request calling
-						* the appropriate function. */
-
-	fs_m_out.m_type = error; 
-	if (IS_VFS_FS_TRANSID(transid)) {
-		/* If a transaction ID was set, reset it */
-		fs_m_out.m_type = TRNS_ADD_ID(fs_m_out.m_type, transid);
-	}
-	reply(who_e, &fs_m_out); 	/* returns the response to VFS */
-  }
 }
 
 /*===========================================================================*
