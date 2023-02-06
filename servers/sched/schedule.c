@@ -13,7 +13,11 @@
 #include <minix/com.h>
 #include <machine/archtypes.h>
 #include "kernel/proc.h" /* for queue constants */
-
+#include <globalme.h>
+#include <time.h>
+long long subtime(struct timeval start,struct timeval end){
+  return 1e6*(end.tv_sec-start.tv_sec)+(end.tv_usec-start.tv_usec);
+}
 static timer_t sched_timer;
 static unsigned balance_timeout;
 
@@ -88,7 +92,7 @@ static void pick_cpu(struct schedproc * proc)
  *===========================================================================*/
 
 int do_noquantum(message *m_ptr)
-{
+{	
 	register struct schedproc *rmp;
 	int rv, proc_nr_n;
 
@@ -99,14 +103,81 @@ int do_noquantum(message *m_ptr)
 	}
 
 	rmp = &schedproc[proc_nr_n];
-	if (rmp->priority < MIN_USER_Q) {
-		rmp->priority += 1; /* lower priority */
-	}
+
+if(MY_SCHEDULING_ALGORITHM==PRIORITY_SCHEDULING_ALGORITHM)
+{// priority algorithm edition
+
+
+	// if (rmp->priority < MIN_USER_Q) {
+	//	rmp->priority += 1; // lower priority 
+	//} 
+	// since the original minix scheduling algorithm is multilevel priority queue,
+	// disabling the feedback (disabling lowering the priority) will result in priorty scheduling algorithm
+	printf("PRIORITY: Process %d consumed timeslice %d and Priority %d\n", rmp->endpoint,rmp->time_slice, rmp->priority);
 
 	if ((rv = schedule_process_local(rmp)) != OK) {
 		return rv;
 	}
 	return OK;
+}
+else if(MY_SCHEDULING_ALGORITHM==RR_SCHEDULING_ALGORITHM)
+{
+/* roundrobin algorithm edition-
+ * edits in /usr/src/servers/schedule.c {disable feedback}
+ * /usr/src/kernel/proc.c    {enqueue(): set priority to same number}--> UPDATE: MOVED TO do_start_scheduling() in this file
+*/
+	
+
+	// if (rmp->priority < MIN_USER_Q) {
+	//	rmp->priority += 1; // lower priority 
+	//} 
+	// since the original minix scheduling algorithm is multilevel priority queue,
+	// disabling the feedback (disabling lowering the priority) will result in fixing processes priorities
+	printf("RR: Process %d consumed timeslice %d and Priority %d\n", rmp->endpoint,rmp->time_slice, rmp->priority);
+
+	if ((rv = schedule_process_local(rmp)) != OK) {
+		return rv;
+	}
+	return OK; 
+	}else if(MY_SCHEDULING_ALGORITHM==MFQ_SCHEDULING_ALGORITHM)
+	{
+	/* roundrobin algorithm edition-
+	* edits in /usr/src/servers/schedule.c {disable feedback}
+	* /usr/src/kernel/proc.c    {enqueue(): set priority to same number}
+	*/
+
+		printf("MFQ: Process %d consumed  %d ms and had Priority of %d\n", rmp->endpoint,rmp->time_slice, rmp->priority);
+		if (rmp->priority<15)
+			{
+			rmp->priority+=1;
+			rmp->time_slice=rmp->priority*10;
+			}
+		if (rmp->priority==15)
+			rmp->time_slice=500000;
+		
+
+		if ((rv = schedule_process_local(rmp)) != OK) {
+			return rv;
+		}
+		return OK; 
+	}else if(MY_SCHEDULING_ALGORITHM==STANDARD_SCHEDULING_ALGORITHM||1){
+	// multilevel priority queue	
+		if (rmp->priority < MIN_USER_Q) {
+			rmp->priority += 1; // lower priority 
+		}
+
+		if ((rv = schedule_process_local(rmp)) != OK) {
+			return rv;
+		}
+		return OK;   
+	}
+
+	
+
+
+
+
+
 }
 
 /*===========================================================================*
@@ -126,8 +197,21 @@ int do_stop_scheduling(message *m_ptr)
 		"%ld\n", m_ptr->SCHEDULING_ENDPOINT);
 		return EBADEPT;
 	}
+	
 
 	rmp = &schedproc[proc_nr_n];
+	//failed approach
+	/*struct timeval endTime;
+	
+	 if(rmp->priority>=6) {
+	gettimeofday(&e,NULL);
+	} 
+
+	//rmp->turnaround_time= subtime(rmp->scheduling_time,rmp->end_time);
+	//printf("process of priority %d had turnaround time of %lld seconds \n",rmp->priority, rmp->turnaround_time);*/
+	printf("process of priority %d has finished \n",rmp->priority);
+	
+
 #ifdef CONFIG_SMP
 	cpu_proc[rmp->cpu]--;
 #endif
@@ -139,6 +223,8 @@ int do_stop_scheduling(message *m_ptr)
 /*===========================================================================*
  *				do_start_scheduling			     *
  *===========================================================================*/
+int tt2=0;
+
 int do_start_scheduling(message *m_ptr)
 {
 	register struct schedproc *rmp;
@@ -163,6 +249,9 @@ int do_start_scheduling(message *m_ptr)
 	rmp->endpoint     = m_ptr->SCHEDULING_ENDPOINT;
 	rmp->parent       = m_ptr->SCHEDULING_PARENT;
 	rmp->max_priority = (unsigned) m_ptr->SCHEDULING_MAXPRIO;
+	rmp->quantum = 0;
+	//gettimeofday(&rmp->scheduling_time,NULL);
+
 	if (rmp->max_priority >= NR_SCHED_QUEUES) {
 		return EINVAL;
 	}
@@ -187,7 +276,7 @@ int do_start_scheduling(message *m_ptr)
 		/* FIXME set the cpu mask */
 #endif
 	}
-	
+
 	switch (m_ptr->m_type) {
 
 	case SCHEDULING_START:
@@ -206,14 +295,57 @@ int do_start_scheduling(message *m_ptr)
 				&parent_nr_n)) != OK)
 			return rv;
 
-		rmp->priority = schedproc[parent_nr_n].priority;
-		rmp->time_slice = schedproc[parent_nr_n].time_slice;
-		break;
+
+
+		if(MY_SCHEDULING_ALGORITHM==RR_SCHEDULING_ALGORITHM)
+  			{
+				rmp->priority=7; // this lind robin algorithm
+			if(schedproc[parent_nr_n].priority<15)
+				rmp->priority = (schedproc[parent_nr_n].priority+1)%16;
+			}
+
+		else if(MY_SCHEDULING_ALGORITHM==PRIORITY_SCHEDULING_ALGORITHM)
+			{
+				int a[]={1,3,2,4,5};
+
+				if (schedproc[parent_nr_n].priority>=7)
+					{
+						
+						
+						//rmp->priority = schedproc[parent_nr_n].priority;
+						rmp->priority = (schedproc[parent_nr_n].priority+a[tt2++%5])%16;
+						if (rmp->priority==0)
+							rmp->priority+=8;
+						printf("child process was given a priority of %d\n",rmp->priority);
+						if(tt2>50000)
+						tt2=0;
+						
+					}
+				else
+					rmp->priority = schedproc[parent_nr_n].priority;
+			}else if(MY_SCHEDULING_ALGORITHM==SJF_SCHEDULING_ALGORITHM){
+				rmp->jobtime=rand()%3125;
+				rmp->priority=SJF_PRIORITY_Q;	
+			}
+			else
+			rmp->priority = schedproc[parent_nr_n].priority;
 		
+		rmp->time_slice = schedproc[parent_nr_n].time_slice;
+		if(MY_SCHEDULING_ALGORITHM==MFQ_SCHEDULING_ALGORITHM &&	rmp->priority ==15)
+		rmp->time_slice = 10000;
+		else if(MY_SCHEDULING_ALGORITHM==PRIORITY_SCHEDULING_ALGORITHM&&rmp->priority >=6)
+		rmp->time_slice = 10000;
+		else if(MY_SCHEDULING_ALGORITHM==MFQ_SCHEDULING_ALGORITHM)
+		{
+			if(rmp->priority==15)
+			rmp->time_slice=500000;
+			else
+			rmp->time_slice=10*(rmp->priority);
+		}
+		break; 
 	default: 
 		/* not reachable */
-		assert(0);
-	}
+	assert(0);}
 
 	/* Take over scheduling the process. The kernel reply message populates
 	 * the processes current priority and its time slice */
@@ -224,7 +356,8 @@ int do_start_scheduling(message *m_ptr)
 	}
 	rmp->flags = IN_USE;
 
-	/* Schedule the process, giving it some quantum */
+
+	/* Schedule the  process, giving it some quantum */
 	pick_cpu(rmp);
 	while ((rv = schedule_process(rmp, SCHEDULE_CHANGE_ALL)) == EBADCPU) {
 		/* don't try this CPU ever again */
@@ -309,15 +442,23 @@ static int schedule_process(struct schedproc * rmp, unsigned flags)
 		new_prio = -1;
 
 	if (flags & SCHEDULE_CHANGE_QUANTUM)
+		{
 		new_quantum = rmp->time_slice;
+		if(MY_SCHEDULING_ALGORITHM==MFQ_SCHEDULING_ALGORITHM &&	rmp->priority ==15)
+		//change process quantum so the last que in MFQ is fcfs
+		new_quantum = 500000;
+		}
+		//	
+
 	else
 		new_quantum = -1;
-
+	
 	if (flags & SCHEDULE_CHANGE_CPU)
 		new_cpu = rmp->cpu;
 	else
 		new_cpu = -1;
 
+	
 	if ((err = sys_schedule(rmp->endpoint, new_prio,
 		new_quantum, new_cpu)) != OK) {
 		printf("PM: An error occurred when trying to schedule %d: %d\n",
@@ -356,6 +497,7 @@ static void balance_queues(struct timer *tp)
 	for (proc_nr=0, rmp=schedproc; proc_nr < NR_PROCS; proc_nr++, rmp++) {
 		if (rmp->flags & IN_USE) {
 			if (rmp->priority > rmp->max_priority) {
+				if(MY_SCHEDULING_ALGORITHM==STANDARD_SCHEDULING_ALGORITHM)
 				rmp->priority -= 1; /* increase priority */
 				schedule_process_local(rmp);
 			}
